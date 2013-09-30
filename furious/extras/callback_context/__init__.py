@@ -2,7 +2,7 @@ import uuid
 
 from google.appengine.ext import ndb
 
-from ...async import Async
+from ...async import Async, decode_async_options
 from ...context import Context, get_current_async
 from ...job_utils import path_to_reference, reference_to_path
 
@@ -98,11 +98,14 @@ class CallbackContext(Context):
 class CallbackAsync(Async):
     def __init__(self, target, context_id, args=None, kwargs=None, **options):
         if not context_id:
-            raise InvalidContextError('Must create')
+            raise InvalidContextError('Must create callback async with a '
+                                      'context id.')
+
+        options['_context_id'] = context_id
 
         Async.__init__(self, target, args, kwargs, **options)
         self.__context_id = context_id
-        self.__id = uuid.uuid4().hex
+        self.__id = options.get('_id') or uuid.uuid4().hex
 
     @property
     def context_id(self):
@@ -112,10 +115,24 @@ class CallbackAsync(Async):
     def id(self):
         return self.__id
 
+    @classmethod
+    def from_dict(cls, async):
+        async_options = decode_async_options(async)
+
+        target, args, kwargs = async_options.pop('job')
+
+        context_id = async_options.pop('_context_id')
+
+        return cls(target, context_id, args, kwargs, **async_options)
+
     def add_callback(self, type, function):
         callback_dct = self._options.get('callbacks', {})
         callback_dct[type] = reference_to_path(function)
         self._options['callbacks'] = callback_dct
+
+    def to_dict(self):
+        self._options['_id'] = self.id
+        return Async.to_dict(self)
 
 
 class InvalidContextError(Exception):
